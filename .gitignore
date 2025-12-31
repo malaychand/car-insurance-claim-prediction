@@ -1,0 +1,55 @@
+# ---- Python cache ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+
+# ---- Environment files ----
+venv/
+.env/
+env/
+*.env
+
+# ---- Jupyter notebook checkpoints ----
+.ipynb_checkpoints/
+
+# ---- OS files ----
+.DS_Store
+Thumbs.db
+
+# ---- Logs ----
+logs/
+*.log
+
+# ---- Data files (DO NOT upload raw datasets) ----
+data/raw/*
+data/processed/*
+!data/raw/README.md
+!data/processed/README.md
+
+# ---- Model files ----
+models/*
+!models/.gitkeep
+
+# ---- Visualizations ----
+visualizations/*
+!visualizations/.gitkeep
+
+# ---- Generated Reports ----
+reports/
+*.pdf
+
+# ---- Virtual environment folders ----
+.venv/
+env/
+venv/
+
+# ---- Build & distribution ----
+build/
+dist/
+
+# ---- Editor configs ----
+.vscode/
+.idea/
+
