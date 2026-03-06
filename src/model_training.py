@@ -1,195 +1,534 @@
-# model_training.py
-from typing import Dict, Tuple
+# -*- coding: utf-8 -*-
+"""
+model_training.py
+=================
+Car Insurance Claim Prediction — Model Training & Evaluation Module
 
-import joblib
+Handles:
+  - Training multiple baseline and advanced classifiers
+  - Comparing model performance
+  - Hyperparameter tuning via Optuna
+  - Full evaluation metrics (Accuracy, F1, ROC-AUC, Confusion Matrix)
+  - Saving / loading trained models
+
+Usage
+-----
+    from model_training import (
+        train_all_models,
+        compare_models,
+        tune_lgbm,
+        evaluate_model,
+        save_model,
+        load_model,
+    )
+
+    results = train_all_models(X_train, y_train, X_test, y_test)
+    compare_models(results)
+
+    best_params = tune_lgbm(X_train, y_train, X_test, y_test, n_trials=50)
+    final_model = train_final_model(X_train, y_train, best_params)
+    metrics     = evaluate_model(final_model, X_test, y_test)
+    save_model(final_model, "models/best_model.pkl")
+"""
+
+import pickle
+import warnings
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import roc_auc_score
-from sklearn.model_selection import StratifiedKFold
+import seaborn as sns
+from sklearn.ensemble import (
+    AdaBoostClassifier,
+    GradientBoostingClassifier,
+    RandomForestClassifier,
+)
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (
+    ConfusionMatrixDisplay,
+    accuracy_score,
+    classification_report,
+    confusion_matrix,
+    f1_score,
+    roc_auc_score,
+    roc_curve,
+)
+from sklearn.naive_bayes import BernoulliNB
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neural_network import MLPClassifier
+from sklearn.tree import DecisionTreeClassifier
 
-import xgboost as xgb
-from catboost import CatBoostClassifier
+# Optional boosting backends
+try:
+    from lightgbm import LGBMClassifier
+    _LGBM = True
+except ImportError:
+    _LGBM = False
 
-from data_preprocessing import preprocess_data
-from feature_engineering import add_interactions
-from utils import RANDOM_STATE, ensure_dir
+try:
+    from xgboost import XGBClassifier
+    _XGB = True
+except ImportError:
+    _XGB = False
+
+try:
+    from catboost import CatBoostClassifier
+    _CAT = True
+except ImportError:
+    _CAT = False
+
+try:
+    import optuna
+    optuna.logging.set_verbosity(optuna.logging.WARNING)
+    _OPTUNA = True
+except ImportError:
+    _OPTUNA = False
+
+warnings.filterwarnings("ignore")
+
+RANDOM_STATE = 42
+
+# Default best params (from Optuna tuning in notebook)
+DEFAULT_LGBM_PARAMS = {
+    "n_estimators": 500,
+    "num_leaves": 31,
+    "max_depth": 10,
+    "min_child_samples": 20,
+    "learning_rate": 0.05,
+    "random_state": RANDOM_STATE,
+    "verbose": -1,
+}
+
+DEFAULT_GBM_PARAMS = {
+    "n_estimators": 200,
+    "max_depth": 5,
+    "learning_rate": 0.05,
+    "random_state": RANDOM_STATE,
+}
 
 
-def build_train_matrices(
-    train_csv: str = "train.csv",
-    test_csv: str = "test.csv",
-) -> Tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]:
+# ---------------------------------------------------------------------------
+# Model Registry
+# ---------------------------------------------------------------------------
+
+def get_all_models() -> dict:
     """
-    Preprocess data and add interaction features.
-    Returns X, y for training and test_features, test_policy_ids for inference.
+    Return a dictionary of all classifiers to compare.
+
+    Returns
+    -------
+    dict : {model_name: model_instance}
     """
-    df_train, df_test, _ = preprocess_data(train_csv, test_csv)
-
-    df_train = add_interactions(df_train)
-    df_test = add_interactions(df_test)
-
-    y = df_train["is_claim"].astype(int)
-    X = df_train.drop("is_claim", axis=1)
-
-    test_policy_ids = df_test["policy_id"] if "policy_id" in df_test.columns else None
-    test_features = df_test.drop("policy_id", axis=1, errors="ignore")
-
-    # align test to train columns
-    test_features = test_features.reindex(columns=X.columns, fill_value=0)
-
-    print("Train shape:", X.shape, " Test shape:", test_features.shape)
-    return X, y, test_features, test_policy_ids
-
-
-def cv_train_models(
-    X: pd.DataFrame, y: pd.Series, n_splits: int = 5
-) -> Tuple[str, Dict[str, float]]:
-    """
-    Cross-validate RandomForest, XGBoost, and CatBoost and return best model name and mean AUCs.
-    """
-    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=RANDOM_STATE)
-
-    rf_aucs, xgb_aucs, cat_aucs = [], [], []
-
-    for fold, (tr_idx, val_idx) in enumerate(skf.split(X, y), 1):
-        X_tr, X_val = X.iloc[tr_idx], X.iloc[val_idx]
-        y_tr, y_val = y.iloc[tr_idx], y.iloc[val_idx]
-
-        pos_ratio = y_tr.value_counts()[0] / y_tr.value_counts()[1]
-
-        # Random Forest
-        rf = RandomForestClassifier(
-            n_estimators=500,
-            max_depth=16,
-            min_samples_split=4,
-            class_weight="balanced",
-            n_jobs=-1,
-            random_state=RANDOM_STATE,
-        )
-        rf.fit(X_tr, y_tr)
-        rf_probs = rf.predict_proba(X_val)[:, 1]
-        rf_auc = roc_auc_score(y_val, rf_probs)
-        rf_aucs.append(rf_auc)
-
-        # XGBoost
-        xgb_model = xgb.XGBClassifier(
-            n_estimators=500,
-            learning_rate=0.05,
-            max_depth=6,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            eval_metric="auc",
-            scale_pos_weight=pos_ratio,
-            tree_method="hist",
-            random_state=RANDOM_STATE,
-        )
-        xgb_model.fit(X_tr, y_tr)
-        xgb_probs = xgb_model.predict_proba(X_val)[:, 1]
-        xgb_auc = roc_auc_score(y_val, xgb_probs)
-        xgb_aucs.append(xgb_auc)
-
-        # CatBoost
-        cat = CatBoostClassifier(
-            iterations=700,
-            depth=8,
-            learning_rate=0.05,
-            loss_function="Logloss",
-            eval_metric="AUC",
-            class_weights=[1.0, pos_ratio],
-            verbose=False,
-            random_seed=RANDOM_STATE,
-        )
-        cat.fit(X_tr, y_tr)
-        cat_probs = cat.predict_proba(X_val)[:, 1]
-        cat_auc = roc_auc_score(y_val, cat_probs)
-        cat_aucs.append(cat_auc)
-
-        print(
-            f"Fold {fold}: RF AUC={rf_auc:.4f}, XGB AUC={xgb_auc:.4f}, CAT AUC={cat_auc:.4f}"
-        )
-
-    mean_scores: Dict[str, float] = {
-        "RandomForest": float(np.mean(rf_aucs)),
-        "XGBoost": float(np.mean(xgb_aucs)),
-        "CatBoost": float(np.mean(cat_aucs)),
+    models = {
+        "Logistic Regression": LogisticRegression(
+            random_state=RANDOM_STATE, max_iter=1000
+        ),
+        "KNN": KNeighborsClassifier(),
+        "BernoulliNB": BernoulliNB(),
+        "Decision Tree": DecisionTreeClassifier(random_state=RANDOM_STATE),
+        "AdaBoost": AdaBoostClassifier(random_state=RANDOM_STATE),
+        "Random Forest": RandomForestClassifier(
+            random_state=RANDOM_STATE, n_jobs=-1
+        ),
+        "Gradient Boosting": GradientBoostingClassifier(
+            random_state=RANDOM_STATE
+        ),
+        "MLP": MLPClassifier(random_state=RANDOM_STATE, max_iter=300),
     }
+    if _LGBM:
+        models["LightGBM"] = LGBMClassifier(
+            random_state=RANDOM_STATE, verbose=-1
+        )
+    if _XGB:
+        models["XGBoost"] = XGBClassifier(
+            random_state=RANDOM_STATE, eval_metric="logloss"
+        )
+    if _CAT:
+        models["CatBoost"] = CatBoostClassifier(
+            random_state=RANDOM_STATE, verbose=0
+        )
+    return models
 
-    print("\nMean CV AUCs:")
-    for name, score in mean_scores.items():
-        print(f"{name}: {score:.5f}")
 
-    best_name = max(mean_scores, key=mean_scores.get)
-    print("\nBest model by mean CV AUC:", best_name, " -> ", mean_scores[best_name])
+# ---------------------------------------------------------------------------
+# Training & Comparison
+# ---------------------------------------------------------------------------
 
-    return best_name, mean_scores
+def train_all_models(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    X_test: pd.DataFrame,
+    y_test: pd.Series,
+    verbose: bool = True,
+) -> pd.DataFrame:
+    """
+    Train all registered models and return a comparison DataFrame.
+
+    Parameters
+    ----------
+    X_train, y_train : training data
+    X_test, y_test   : evaluation data
+    verbose          : print results as models are trained
+
+    Returns
+    -------
+    pd.DataFrame sorted by ROC-AUC (descending)
+        Columns: Model, Accuracy, F1 Score, ROC-AUC
+    """
+    models = get_all_models()
+    results = []
+
+    for name, model in models.items():
+        try:
+            model.fit(X_train, y_train)
+            y_pred = model.predict(X_test)
+            y_prob = model.predict_proba(X_test)[:, 1]
+
+            acc = accuracy_score(y_test, y_pred)
+            f1  = f1_score(y_test, y_pred, zero_division=0)
+            auc = roc_auc_score(y_test, y_prob)
+
+            results.append({
+                "Model": name,
+                "Accuracy": round(acc, 4),
+                "F1 Score": round(f1, 4),
+                "ROC-AUC": round(auc, 4),
+            })
+            if verbose:
+                print(
+                    f"  {name:<25} Acc={acc:.4f}  "
+                    f"F1={f1:.4f}  AUC={auc:.4f}"
+                )
+        except Exception as e:
+            print(f"  [ERROR] {name}: {e}")
+
+    df_results = pd.DataFrame(results).sort_values("ROC-AUC", ascending=False)
+    return df_results
 
 
-def train_full_model(
-    X: pd.DataFrame, y: pd.Series, best_name: str
+def compare_models(results_df: pd.DataFrame) -> None:
+    """
+    Plot a grouped bar chart comparing model metrics.
+
+    Parameters
+    ----------
+    results_df : pd.DataFrame
+        Output of train_all_models().
+    """
+    melted = results_df.melt(
+        id_vars="Model",
+        value_vars=["Accuracy", "F1 Score", "ROC-AUC"],
+        var_name="Metric",
+        value_name="Score",
+    )
+    fig, ax = plt.subplots(figsize=(14, 6))
+    x = np.arange(len(results_df))
+    width = 0.25
+    metrics = ["Accuracy", "F1 Score", "ROC-AUC"]
+    colors = ["steelblue", "tomato", "seagreen"]
+
+    for i, (metric, color) in enumerate(zip(metrics, colors)):
+        vals = results_df[metric].values
+        bars = ax.bar(x + i * width, vals, width, label=metric, color=color, alpha=0.8)
+        for bar in bars:
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + 0.005,
+                f"{bar.get_height():.3f}",
+                ha="center", va="bottom", fontsize=7,
+            )
+
+    ax.set_xticks(x + width)
+    ax.set_xticklabels(results_df["Model"], rotation=30, ha="right")
+    ax.set_ylim(0, 1.1)
+    ax.set_ylabel("Score")
+    ax.set_title("Model Comparison — Accuracy / F1 / ROC-AUC", fontsize=13)
+    ax.legend()
+    plt.tight_layout()
+    plt.show()
+
+
+# ---------------------------------------------------------------------------
+# Hyperparameter Tuning
+# ---------------------------------------------------------------------------
+
+def tune_lgbm(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    X_test: pd.DataFrame,
+    y_test: pd.Series,
+    n_trials: int = 50,
+    random_state: int = RANDOM_STATE,
+) -> dict:
+    """
+    Run Optuna hyperparameter search for LightGBM (or GradientBoosting).
+
+    Parameters
+    ----------
+    X_train, y_train : training data
+    X_test, y_test   : evaluation data
+    n_trials         : number of Optuna trials. Default 50.
+    random_state     : random seed for reproducibility.
+
+    Returns
+    -------
+    dict : best hyperparameters
+    """
+    if not _OPTUNA:
+        print("[WARN] optuna not installed. Returning default params.")
+        return DEFAULT_LGBM_PARAMS if _LGBM else DEFAULT_GBM_PARAMS
+
+    def objective(trial):
+        params = {
+            "n_estimators": trial.suggest_int("n_estimators", 50, 500),
+            "max_depth": trial.suggest_int("max_depth", 2, 12),
+            "learning_rate": trial.suggest_float(
+                "learning_rate", 0.01, 0.3, log=True
+            ),
+            "random_state": random_state,
+        }
+        if _LGBM:
+            params["num_leaves"] = trial.suggest_int("num_leaves", 10, 60)
+            params["min_child_samples"] = trial.suggest_int(
+                "min_child_samples", 5, 50
+            )
+            model = LGBMClassifier(**params, verbose=-1)
+        else:
+            model = GradientBoostingClassifier(**params)
+
+        model.fit(X_train, y_train)
+        return accuracy_score(y_test, model.predict(X_test))
+
+    study = optuna.create_study(
+        direction="maximize",
+        sampler=optuna.samplers.TPESampler(seed=random_state),
+    )
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=True)
+
+    best = study.best_trial
+    print(f"\n[Optuna] Best Accuracy : {best.value:.4f}")
+    print(f"[Optuna] Best Params   : {best.params}")
+    return best.params
+
+
+def tune_logistic(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    X_test: pd.DataFrame,
+    y_test: pd.Series,
+    n_trials: int = 30,
+    random_state: int = RANDOM_STATE,
+) -> dict:
+    """
+    Run Optuna hyperparameter search for Logistic Regression.
+
+    Returns
+    -------
+    dict : best hyperparameters
+    """
+    if not _OPTUNA:
+        print("[WARN] optuna not installed.")
+        return {"C": 1.0, "solver": "lbfgs"}
+
+    def objective(trial):
+        params = {
+            "C": trial.suggest_float("C", 0.01, 10.0, log=True),
+            "solver": trial.suggest_categorical(
+                "solver", ["lbfgs", "liblinear"]
+            ),
+            "max_iter": 1000,
+            "random_state": random_state,
+        }
+        model = LogisticRegression(**params)
+        model.fit(X_train, y_train)
+        return accuracy_score(y_test, model.predict(X_test))
+
+    study = optuna.create_study(
+        direction="maximize",
+        sampler=optuna.samplers.TPESampler(seed=random_state),
+    )
+    study.optimize(objective, n_trials=n_trials, show_progress_bar=False)
+    best = study.best_trial
+    print(f"[Optuna LR] Best Accuracy: {best.value:.4f} | Params: {best.params}")
+    return best.params
+
+
+# ---------------------------------------------------------------------------
+# Final Model Training
+# ---------------------------------------------------------------------------
+
+def train_final_model(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    params: dict = None,
 ) -> object:
-    """Train the chosen model on the full training data."""
-    pos_ratio_full = y.value_counts()[0] / y.value_counts()[1]
+    """
+    Train the final boosting model with given hyperparameters.
 
-    if best_name == "RandomForest":
-        model = RandomForestClassifier(
-            n_estimators=500,
-            max_depth=16,
-            min_samples_split=4,
-            class_weight="balanced",
-            n_jobs=-1,
-            random_state=RANDOM_STATE,
-        )
-    elif best_name == "XGBoost":
-        model = xgb.XGBClassifier(
-            n_estimators=500,
-            learning_rate=0.05,
-            max_depth=6,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            eval_metric="auc",
-            scale_pos_weight=pos_ratio_full,
-            tree_method="hist",
-            random_state=RANDOM_STATE,
-        )
-    else:  # CatBoost
-        model = CatBoostClassifier(
-            iterations=700,
-            depth=8,
-            learning_rate=0.05,
-            loss_function="Logloss",
-            eval_metric="AUC",
-            class_weights=[1.0, pos_ratio_full],
-            verbose=False,
-            random_seed=RANDOM_STATE,
-        )
+    Uses LightGBM if installed, falls back to GradientBoostingClassifier.
 
-    model.fit(X, y)
+    Parameters
+    ----------
+    X_train, y_train : training data
+    params : dict, optional
+        Hyperparameters. Defaults to tuned DEFAULT params if None.
+
+    Returns
+    -------
+    Fitted model instance.
+    """
+    params = params or {}
+    params.setdefault("random_state", RANDOM_STATE)
+
+    if _LGBM:
+        params.setdefault("verbose", -1)
+        model = LGBMClassifier(**{**DEFAULT_LGBM_PARAMS, **params})
+        print("[Model] Training LightGBM...")
+    else:
+        model = GradientBoostingClassifier(**{**DEFAULT_GBM_PARAMS, **params})
+        print("[Model] LightGBM not found — training GradientBoostingClassifier...")
+
+    model.fit(X_train, y_train)
+    print("[Model] Training complete.")
     return model
 
 
-def save_model(model: object, best_name: str, out_dir: str = "models") -> str:
-    """Save trained model to disk and return path."""
-    ensure_dir(out_dir)
-    model_path = f"{out_dir}/best_model_{best_name}.pkl"
-    joblib.dump(model, model_path)
-    print(f"Saved best model to: {model_path}")
-    return model_path
+# ---------------------------------------------------------------------------
+# Evaluation
+# ---------------------------------------------------------------------------
+
+def evaluate_model(
+    model,
+    X_test: pd.DataFrame,
+    y_test: pd.Series,
+    plot: bool = True,
+) -> dict:
+    """
+    Full evaluation of a trained model.
+
+    Parameters
+    ----------
+    model          : fitted sklearn-compatible model
+    X_test, y_test : evaluation data
+    plot           : whether to generate confusion matrix & ROC curve
+
+    Returns
+    -------
+    dict: accuracy, f1, roc_auc, report (str), confusion_matrix (array)
+    """
+    y_pred = model.predict(X_test)
+    y_prob = model.predict_proba(X_test)[:, 1]
+
+    acc = accuracy_score(y_test, y_pred)
+    f1  = f1_score(y_test, y_pred, zero_division=0)
+    auc = roc_auc_score(y_test, y_prob)
+    cm  = confusion_matrix(y_test, y_pred)
+    rep = classification_report(y_test, y_pred)
+
+    print("=" * 55)
+    print("  MODEL EVALUATION")
+    print("=" * 55)
+    print(f"  Accuracy  : {acc:.4f}")
+    print(f"  F1 Score  : {f1:.4f}")
+    print(f"  ROC-AUC   : {auc:.4f}")
+    print(f"\nClassification Report:\n{rep}")
+    print(f"Confusion Matrix:\n{cm}")
+
+    if plot:
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+
+        # Confusion matrix
+        disp = ConfusionMatrixDisplay(
+            confusion_matrix=cm,
+            display_labels=["No Claim", "Claim"],
+        )
+        disp.plot(ax=axes[0], colorbar=False, cmap="Blues")
+        axes[0].set_title("Confusion Matrix", fontsize=13)
+
+        # ROC curve
+        fpr, tpr, _ = roc_curve(y_test, y_prob)
+        axes[1].plot(fpr, tpr, color="steelblue", lw=2, label=f"AUC = {auc:.4f}")
+        axes[1].plot([0, 1], [0, 1], "k--", lw=1)
+        axes[1].set_xlabel("False Positive Rate")
+        axes[1].set_ylabel("True Positive Rate")
+        axes[1].set_title("ROC Curve", fontsize=13)
+        axes[1].legend()
+
+        plt.tight_layout()
+        plt.show()
+
+    return {
+        "accuracy": round(acc, 4),
+        "f1": round(f1, 4),
+        "roc_auc": round(auc, 4),
+        "report": rep,
+        "confusion_matrix": cm,
+    }
 
 
-if __name__ == "__main__":
-    # Full training pipeline entrypoint
-    X, y, test_features, test_policy_ids = build_train_matrices(
-        train_csv="train.csv",
-        test_csv="test.csv",
+def plot_feature_importance(model, feature_columns: list, top_n: int = 20) -> None:
+    """
+    Plot top-N feature importances as a horizontal bar chart.
+
+    Parameters
+    ----------
+    model           : fitted model with feature_importances_ attribute
+    feature_columns : list of feature names
+    top_n           : number of top features to show
+    """
+    if not hasattr(model, "feature_importances_"):
+        print("[INFO] This model does not expose feature_importances_.")
+        return
+
+    imp_df = pd.DataFrame({
+        "feature": feature_columns,
+        "importance": model.feature_importances_,
+    }).sort_values("importance", ascending=False).head(top_n)
+
+    plt.figure(figsize=(10, top_n // 2))
+    sns.barplot(
+        x="importance", y="feature", data=imp_df,
+        palette="Blues_r", orient="h",
     )
+    plt.title(f"Top {top_n} Feature Importances", fontsize=13)
+    plt.xlabel("Importance")
+    plt.tight_layout()
+    plt.show()
 
-    best_name, mean_scores = cv_train_models(X, y)
-    best_model = train_full_model(X, y, best_name)
-    save_model(best_model, best_name)
 
-    
-    if test_policy_ids is not None:
-     test_probs = best_model.predict_proba(test_features)[:, 1]
-     submission = pd.DataFrame({"policy_id": test_policy_ids, "is_claim": test_probs})
-     submission.to_csv("submission.csv", index=False)
+# ---------------------------------------------------------------------------
+# Model Persistence
+# ---------------------------------------------------------------------------
+
+def save_model(model, path: str = "models/best_model.pkl") -> None:
+    """
+    Serialize a trained model to disk.
+
+    Parameters
+    ----------
+    model : fitted model
+    path  : file path for the pickle file
+    """
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "wb") as fh:
+        pickle.dump(model, fh)
+    print(f"[Model] Saved -> '{path}'")
+
+
+def load_model(path: str = "models/best_model.pkl"):
+    """
+    Load a previously saved model from disk.
+
+    Parameters
+    ----------
+    path : file path for the pickle file
+
+    Returns
+    -------
+    Loaded model instance.
+    """
+    with open(path, "rb") as fh:
+        model = pickle.load(fh)
+    print(f"[Model] Loaded <- '{path}'")
+    return model
