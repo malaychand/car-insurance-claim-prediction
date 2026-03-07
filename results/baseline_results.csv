@@ -1,0 +1,10 @@
+Model,Accuracy
+Logistic Regression,0.548
+KNN,0.7624
+AdaBoost,0.642
+Decision Tree,0.9198
+Random Forest,0.8911
+Gradient Boosting,0.8692
+XGBoost,0.9042
+LightGBM,0.926
+CatBoost,0.9469

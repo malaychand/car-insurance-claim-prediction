@@ -1,378 +1,481 @@
+# app.py — Car Insurance Claim Predictor
+# Run: streamlit run app.py
+# Requires: python -m src.training  (run once first)
 
-import io
-import pickle
+import os
+import sys
 import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
 
-import numpy as np
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
 import streamlit as st
-from sklearn.metrics import (
-    ConfusionMatrixDisplay,
-    RocCurveDisplay,
-    accuracy_score,
-    classification_report,
-    confusion_matrix,
-    f1_score,
-    roc_auc_score,
-    roc_curve,
-)
+import pandas as pd
+import numpy as np
 
-warnings.filterwarnings("ignore")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from src.predict import predict_claim
 
-# Must import after defining path (pipeline.py must be in same directory)
-from pipeline import CarInsurancePipeline, feature_engineering, TARGET
+# ── Paths ────────────────────────────────────────────────────────
 
-# ---------------------------------------------------------------------------
-# Page config
-# ---------------------------------------------------------------------------
-st.set_page_config(
-    page_title="Car Insurance Claim Predictor",
-    page_icon="🚗",
-    layout="wide",
-    initial_sidebar_state="expanded",
-)
+BASE_DIR    = os.path.dirname(os.path.abspath(__file__))
+MODELS_DIR  = os.path.join(BASE_DIR, "models")
+RESULTS_DIR = os.path.join(BASE_DIR, "results")
+DATA_DIR    = os.path.join(BASE_DIR, "data")
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+# ── Page config ──────────────────────────────────────────────────
 
-@st.cache_resource
-def load_or_train_pipeline(train_path: str = "train.csv"):
-    """Load a saved pipeline or train a new one from train.csv."""
-    try:
-        pipe = CarInsurancePipeline.load("car_insurance_pipeline.pkl")
-        return pipe, None
-    except Exception:
-        try:
-            df = pd.read_csv(train_path)
-            pipe = CarInsurancePipeline(apply_smote=True, scale_features=True)
-            pipe.fit(df, verbose=False)
-            pipe.save("car_insurance_pipeline.pkl")
-            return pipe, df
-        except Exception as e:
-            return None, str(e)
+st.set_page_config(page_title="🚗 ClaimGuard AI", page_icon="🚗", layout="centered")
 
+# ── Sidebar ──────────────────────────────────────────────────────
 
-def build_single_row(inputs: dict) -> pd.DataFrame:
-    """Convert form inputs into a single-row DataFrame."""
-    return pd.DataFrame([inputs])
-
-
-# ---------------------------------------------------------------------------
-# Sidebar — navigation
-# ---------------------------------------------------------------------------
-st.sidebar.image(
-    "https://img.icons8.com/color/96/car--v1.png", width=80
-)
-st.sidebar.title("🚗 Car Insurance\nClaim Predictor")
+st.sidebar.title("🚗 ClaimGuard AI")
 st.sidebar.markdown("---")
-
 page = st.sidebar.radio(
     "Navigate",
-    ["🏠 Home", "🔮 Single Prediction", "📂 Batch Prediction", "📊 Model Insights"],
+    ["🏠 Home", "🔍 Prediction", "📊 Data Explorer", "🛡️ Model Monitor"]
 )
-
-st.sidebar.markdown("---")
-st.sidebar.markdown(
-    "**Model:** LightGBM (GradientBoosting fallback)\n\n"
-    "**Pipeline:** feature_engineering → SMOTE → Scaler → Model\n\n"
-    "**Target:** `is_claim` (0 = No Claim, 1 = Claim)"
-)
-
-# ---------------------------------------------------------------------------
-# Load pipeline
-# ---------------------------------------------------------------------------
-pipe, train_df_or_err = load_or_train_pipeline()
-
-if pipe is None:
-    st.error(f"Could not load or train pipeline: {train_df_or_err}")
-    st.info("Make sure `train.csv` is in the same directory as `app.py`.")
-    st.stop()
-
-# ---------------------------------------------------------------------------
-# HOME PAGE
-# ---------------------------------------------------------------------------
+st.sidebar.markdown("""
+<hr>
+<div style="text-align:center;font-size:12px;color:gray;">
+🚗 <b>ClaimGuard AI</b><br>
+Car Insurance Claim Prediction System<br><br>
+Machine Learning • Risk Analytics<br><br>
+© 2025
+</div>
+""", unsafe_allow_html=True)
+# ============================================================
+# HOME
+# ============================================================
+# ============================================================
+# HOME
+# ============================================================
 if page == "🏠 Home":
-    st.title("🚗 Car Insurance Claim Prediction")
-    st.markdown(
-        """
-        ### About This Project
-        This application predicts whether a car insurance policyholder will file a
-        **claim in the next 6 months** based on their vehicle and policy details.
 
-        ---
-        ### Business Use Cases
-        | Use Case | Description |
-        |---|---|
-        | 🛡️ Fraud Prevention | Flag high-risk policyholders early |
-        | 💰 Pricing Optimization | Adjust premiums based on predicted risk |
-        | 🎯 Customer Targeting | Personalize campaigns for low-risk customers |
-        | ⚙️ Operational Efficiency | Forecast claim volumes for resource planning |
+    # Image paths
+    img1_path = os.path.join(BASE_DIR, "images", "image1.png")
+    img2_path = os.path.join(BASE_DIR, "images", "image2.png")
 
-        ---
-        ### Dataset
-        - **58,592** training observations  |  **43 features**
-        - **Target:** `is_claim` (binary: 0 or 1)
-        - **Class imbalance handled** via SMOTE oversampling
+    # ── Top Banner Image ─────────────────────────────────────
+    if os.path.exists(img1_path):
+        st.image(img1_path, use_container_width=True)
 
-        ---
-        ### Navigation
-        - **Single Prediction** — fill in vehicle/policy details and get an instant prediction
-        - **Batch Prediction** — upload a CSV file and download predictions
-        - **Model Insights** — feature importance, ROC curve, confusion matrix
-        """
-    )
+    st.title("🚗 Car Insurance Claim Predictor")
+    st.markdown("---")
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Training Samples", "58,592")
-    col2.metric("Features", "43 → ~28 (after corr. filter)")
-    col3.metric("Model", "LightGBM / GBM")
+    col1, col2 = st.columns([1.3, 1])
 
-# ---------------------------------------------------------------------------
-# SINGLE PREDICTION PAGE
-# ---------------------------------------------------------------------------
-elif page == "🔮 Single Prediction":
-    st.title("🔮 Single Prediction")
-    st.markdown("Fill in the policyholder and vehicle details below.")
+    # ── Left Column (Description) ────────────────────────────
+    with col1:
+        st.markdown("""
+        ### 🔍 Predict Insurance Claim Risk
 
-    with st.form("prediction_form"):
-        col1, col2, col3 = st.columns(3)
+        This application predicts the **probability that a customer will make a car insurance claim**
+        in the next policy period based on:
 
-        with col1:
-            st.subheader("Policy Details")
-            policy_id = st.text_input("Policy ID", value="ID99999")
-            age_of_car = st.slider("Age of Car (normalised)", 0.0, 1.0, 0.3, 0.01)
-            age_of_policyholder = st.slider("Age of Policyholder (normalised)", 0.2, 1.0, 0.5, 0.01)
-            population_density = st.number_input("Population Density", 100, 80000, 5000)
-            area_cluster = st.selectbox("Area Cluster", [f"C{i}" for i in range(1, 23)])
-            ncap_rating = st.selectbox("NCAP Rating (0-5)", [0, 1, 2, 3, 4, 5], index=3)
+        - Vehicle specifications
+        - Policyholder demographics
+        - Safety features
+        - Policy information
 
-        with col2:
-            st.subheader("Vehicle Details")
-            make = st.number_input("Make (encoded)", 1, 14, 5)
-            segment = st.selectbox("Segment", ["A", "B1", "B2", "C1", "C2"])
-            model = st.selectbox("Model", [f"M{i}" for i in range(1, 50)])
-            fuel_type = st.selectbox("Fuel Type", ["CNG", "Diesel", "Petrol"])
-            engine_type = st.selectbox("Engine Type", ["K Series", "DDiS", "TDi", "CRDi", "VGT", "MPFI", "GDI"])
-            displacement = st.selectbox("Displacement (cc)", [796, 998, 1197, 1248, 1373, 1498, 1596, 1998, 2498])
-            cylinder = st.selectbox("Cylinders", [3, 4, 6])
-            transmission_type = st.selectbox("Transmission", ["Manual", "Automatic"])
-            gear_box = st.selectbox("Gear Box", [5, 6])
-            airbags = st.selectbox("Airbags", [0, 2, 4, 6])
+        The model helps insurance companies with:
 
-        with col3:
-            st.subheader("Features")
-            max_torque = st.text_input("Max Torque", "190Nm@2000rpm")
-            max_power = st.text_input("Max Power", "85bhp@4000rpm")
-            steering_type = st.selectbox("Steering Type", ["Power", "Manual", "Electric"])
-            rear_brakes_type = st.selectbox("Rear Brakes", ["Disc", "Drum"])
-            turning_radius = st.slider("Turning Radius (m)", 4.5, 6.5, 5.2, 0.1)
-            width = st.number_input("Width (mm)", 1500, 1900, 1700)
-            height = st.number_input("Height (mm)", 1400, 1800, 1550)
-            gross_weight = st.number_input("Gross Weight (kg)", 1200, 2200, 1600)
+        - **Risk Assessment**
+        - **Fraud Prevention**
+        - **Premium Optimization**
+        - **Operational Efficiency**
+        """)
 
-            st.subheader("Safety Features")
-            yn_features = {}
-            for feat in ["is_esc", "is_adjustable_steering", "is_tpms",
-                         "is_parking_sensors", "is_parking_camera",
-                         "is_front_fog_lights", "is_rear_window_wiper",
-                         "is_rear_window_washer", "is_rear_window_defogger",
-                         "is_brake_assist", "is_power_door_locks",
-                         "is_central_locking", "is_power_steering",
-                         "is_driver_seat_height_adjustable",
-                         "is_day_night_rear_view_mirror", "is_ecw", "is_speed_alert"]:
-                yn_features[feat] = st.selectbox(
-                    feat.replace("_", " ").title(), ["Yes", "No"], key=feat
-                )
+    # ── Right Column (Image + Pipeline) ──────────────────────
+    with col2:
+        if os.path.exists(img2_path):
+            st.image(img2_path, use_container_width=True)
 
-        submitted = st.form_submit_button("🔮 Predict", use_container_width=True)
 
-    if submitted:
-        row = {
-            "policy_id": policy_id,
-            "policy_tenure": 0.5,
-            "age_of_car": age_of_car,
-            "age_of_policyholder": age_of_policyholder,
-            "area_cluster": area_cluster,
-            "population_density": population_density,
-            "make": make,
-            "segment": segment,
-            "model": model,
-            "fuel_type": fuel_type,
-            "max_torque": max_torque,
-            "max_power": max_power,
-            "engine_type": engine_type,
-            "airbags": airbags,
-            "rear_brakes_type": rear_brakes_type,
-            "displacement": displacement,
-            "cylinder": cylinder,
-            "transmission_type": transmission_type,
-            "gear_box": gear_box,
-            "steering_type": steering_type,
-            "turning_radius": turning_radius,
-            "width": width,
-            "height": height,
-            "gross_weight": gross_weight,
-            "ncap_rating": ncap_rating,
-            **yn_features,
-        }
+    # ── Model Status ─────────────────────────────────────────
+    model_ok = os.path.exists(os.path.join(MODELS_DIR, "lightgbm_optuna_model.pkl"))
 
-        input_df = build_single_row(row)
-        pred = pipe.predict(input_df)[0]
-        proba = pipe.predict_proba(input_df)[0][1]
+    if model_ok:
+        st.success("✅ Model Loaded — Ready for Predictions")
+    else:
+        st.warning("⚠️ Model not found. Run the training script first:")
+        st.code("python -m src.training", language="bash")
 
         st.markdown("---")
-        c1, c2 = st.columns(2)
-        if pred == 1:
-            c1.error(f"### ⚠️ CLAIM PREDICTED\nThis policyholder is **likely to file a claim**.")
-        else:
-            c1.success(f"### ✅ NO CLAIM PREDICTED\nThis policyholder is **unlikely to file a claim**.")
+    st.markdown("#### ⚙️ Machine Learning Pipeline")
 
-        # Gauge chart
-        fig = go.Figure(go.Indicator(
-            mode="gauge+number",
-            value=round(proba * 100, 1),
-            title={"text": "Claim Probability (%)"},
-            gauge={
-                "axis": {"range": [0, 100]},
-                "bar": {"color": "crimson" if pred == 1 else "green"},
-                "steps": [
-                    {"range": [0, 30], "color": "#d4edda"},
-                    {"range": [30, 60], "color": "#fff3cd"},
-                    {"range": [60, 100], "color": "#f8d7da"},
-                ],
-                "threshold": {
-                    "line": {"color": "black", "width": 4},
-                    "thickness": 0.75,
-                    "value": 50,
-                },
-            },
-        ))
-        fig.update_layout(height=300)
-        c2.plotly_chart(fig, use_container_width=True)
-
-# ---------------------------------------------------------------------------
-# BATCH PREDICTION PAGE
-# ---------------------------------------------------------------------------
-elif page == "📂 Batch Prediction":
-    st.title("📂 Batch Prediction")
+    st.markdown("""
+        - Drop irrelevant columns (`policy_id`, `policy_tenure`)
+        - Label Encoding of categorical variables
+        - One-Hot Encoding of binary features
+        - Correlation analysis and feature pruning
+        - SMOTE oversampling for class imbalance
+        - Feature scaling using StandardScaler
+        - Hyperparameter tuning with **Optuna**
+        - Final model: **LightGBM Classifier**
+        """)
+         
     st.markdown(
-        "Upload a CSV file with the same columns as `test.csv` "
-        "(without `is_claim`). The app will return predictions for every row."
+
+        """
+        ### 📊 Features Used in the Model
+
+        - Age of car
+        - Age of policyholder
+        - Vehicle model & segment
+        - Fuel type
+        - Engine specifications
+        - Safety features (ESC, TPMS, airbags)
+        - City population density
+        - Vehicle dimensions & specifications
+
+        Navigate to **🔍 Prediction** to test the model.
+        """
     )
 
-    uploaded = st.file_uploader("Upload test CSV", type="csv")
+# ============================================================
+# PREDICTION
+# ============================================================
 
-    if uploaded:
-        df_up = pd.read_csv(uploaded)
-        st.write(f"**Uploaded:** {df_up.shape[0]:,} rows × {df_up.shape[1]} columns")
-        st.dataframe(df_up.head(5))
-
-        with st.spinner("Running predictions..."):
-            preds = pipe.predict(df_up)
-            probas = pipe.predict_proba(df_up)[:, 1]
-
-        results = df_up[["policy_id"]].copy() if "policy_id" in df_up.columns else df_up.iloc[:, :1].copy()
-        results["is_claim"] = preds
-        results["claim_probability"] = probas.round(4)
-
-        st.success(f"Done! Predicted **{preds.sum():,}** claims out of {len(preds):,} policies ({preds.mean()*100:.1f}%).")
-        st.dataframe(results.head(20))
-
-        # Distribution chart
-        fig = px.histogram(
-            results, x="claim_probability", nbins=50,
-            color_discrete_sequence=["#1f77b4"],
-            title="Distribution of Claim Probabilities",
-            labels={"claim_probability": "P(Claim)"},
-        )
-        st.plotly_chart(fig, use_container_width=True)
-
-        # Download button
-        csv_buf = io.StringIO()
-        results.to_csv(csv_buf, index=False)
-        st.download_button(
-            "⬇️ Download Predictions CSV",
-            data=csv_buf.getvalue(),
-            file_name="predictions.csv",
-            mime="text/csv",
-        )
-
-# ---------------------------------------------------------------------------
-# MODEL INSIGHTS PAGE
-# ---------------------------------------------------------------------------
-elif page == "📊 Model Insights":
-    st.title("📊 Model Insights")
-
-    # Feature Importance
-    st.subheader("Feature Importance (Top 20)")
-    model = pipe.model_
-    feat_names = pipe.feature_columns_
-
-    if hasattr(model, "feature_importances_"):
-        importance_df = pd.DataFrame({
-            "feature": feat_names,
-            "importance": model.feature_importances_,
-        }).sort_values("importance", ascending=False).head(20)
-
-        fig = px.bar(
-            importance_df,
-            x="importance", y="feature",
-            orientation="h",
-            color="importance",
-            color_continuous_scale="Blues",
-            title="Top 20 Feature Importances",
-        )
-        fig.update_layout(yaxis={"categoryorder": "total ascending"}, height=550)
-        st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("Feature importances not available for this model.")
-
-    # Evaluate on uploaded data
+if page == "🔍 Prediction":
+    st.title("🔍 Claim Probability Prediction")
     st.markdown("---")
-    st.subheader("Evaluate on Labelled Data")
-    st.markdown("Upload a CSV with `is_claim` column to see full metrics.")
 
-    eval_file = st.file_uploader("Upload labelled CSV", type="csv", key="eval")
-    if eval_file:
-        eval_df = pd.read_csv(eval_file)
-        if TARGET not in eval_df.columns:
-            st.error(f"Uploaded file must contain '{TARGET}' column.")
-        else:
-            with st.spinner("Evaluating..."):
-                metrics = pipe.evaluate(eval_df)
+    if not os.path.exists(os.path.join(MODELS_DIR, "lightgbm_optuna_model.pkl")):
+        st.error("⚠️ Model not found.")
+        st.code("python -m src.training", language="bash")
+        st.stop()
 
-            c1, c2, c3 = st.columns(3)
-            c1.metric("Accuracy", f"{metrics['accuracy']:.4f}")
-            c2.metric("F1 Score", f"{metrics['f1']:.4f}")
-            c3.metric("ROC-AUC", f"{metrics['roc_auc']:.4f}")
+    # ── Helper ───────────────────────────────────────────────────
 
-            st.text("Classification Report:")
-            st.code(metrics["report"])
+    def num_input(label, default, min_v=0.0, step=1.0):
+        return st.number_input(label, min_value=float(min_v),
+                               value=float(default), step=float(step))
 
-            # Confusion matrix heatmap
-            cm = metrics["confusion_matrix"]
-            fig_cm = px.imshow(
-                cm, text_auto=True, color_continuous_scale="Blues",
-                labels={"x": "Predicted", "y": "Actual"},
-                x=["No Claim", "Claim"], y=["No Claim", "Claim"],
-                title="Confusion Matrix",
-            )
-            fig_cm.update_layout(width=450, height=400)
-            st.plotly_chart(fig_cm)
+    def yn(label, key):
+        return st.selectbox(label, ["Yes", "No"], key=key)
 
-            # ROC curve
-            X_ev, y_ev = pipe._preprocess(eval_df, fit=False)
-            y_prob = pipe.model_.predict_proba(X_ev)[:, 1]
-            fpr, tpr, _ = roc_curve(y_ev, y_prob)
-            auc_val = roc_auc_score(y_ev, y_prob)
-            fig_roc = px.line(
-                x=fpr, y=tpr,
-                labels={"x": "False Positive Rate", "y": "True Positive Rate"},
-                title=f"ROC Curve  (AUC = {auc_val:.4f})",
-            )
-            fig_roc.add_shape(type="line", x0=0, y0=0, x1=1, y1=1,
-                              line=dict(dash="dash", color="gray"))
-            st.plotly_chart(fig_roc, use_container_width=True)
+    # ── Actual value lists from CSV ───────────────────────────────
+
+    # max_torque & max_power — object columns with specific string values
+    TORQUE_OPTIONS = [
+        "60Nm@3500rpm", "82.1Nm@3400rpm", "85Nm@3500rpm",
+        "90Nm@3500rpm", "99Nm@3500rpm", "105Nm@4000rpm",
+        "113Nm@4400rpm", "115Nm@4000rpm", "130Nm@4000rpm",
+        "145Nm@3500rpm", "163Nm@1750rpm", "165Nm@4250rpm",
+        "200Nm@1750rpm", "215Nm@1750rpm", "250Nm@1500rpm",
+        "320Nm@1750rpm", "350Nm@1500rpm", "400Nm@1800rpm",
+    ]
+
+    POWER_OPTIONS = [
+        "40.36bhp@6000rpm", "57bhp@6000rpm", "61.7bhp@6000rpm",
+        "67bhp@6000rpm", "72bhp@6000rpm", "74bhp@4000rpm",
+        "82bhp@6000rpm", "88.50bhp@6000rpm", "100bhp@3750rpm",
+        "103.25bhp@3750rpm", "113bhp@4000rpm", "115bhp@5500rpm",
+        "125bhp@5000rpm", "148bhp@5000rpm", "160bhp@5500rpm",
+        "190bhp@3800rpm",
+    ]
+
+    ENGINE_OPTIONS = [
+        "F8D Petrol Engine", "1.2 L K12N Dualjet", "1.2 L K12B",
+        "1.0L Turbocharged", "1.5L Diesel", "1.5L Petrol",
+        "2.0L Diesel", "1.4L Petrol", "1.4L Diesel",
+        "1.6L Diesel", "1.6L Petrol", "2.5L Diesel",
+    ]
+
+    AREA_OPTIONS = [f"C{i}" for i in range(1, 26)]
+
+    MODEL_OPTIONS = [f"M{i}" for i in range(1, 13)]
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("🚘 Vehicle Info")
+
+        # make is int64 in CSV (pre-encoded 0–17), show as numeric
+        make = int(num_input("Make (encoded 0–17, see data)", 0, min_v=0, step=1))
+
+        model_name       = st.selectbox("Model", MODEL_OPTIONS)
+        segment          = st.selectbox("Segment", ["A", "B", "C", "D", "E"])
+        fuel_type        = st.selectbox("Fuel Type", ["CNG", "Diesel", "Electric", "Petrol"])
+        transmission     = st.selectbox("Transmission", ["Automatic", "Manual"])
+        steering         = st.selectbox("Steering Type", ["Manual", "Power"])
+        rear_brakes      = st.selectbox("Rear Brakes", ["Disc", "Drum"])
+        area_cluster     = st.selectbox("Area Cluster", AREA_OPTIONS)
+        engine_type      = st.selectbox("Engine Type", ENGINE_OPTIONS)
+        max_torque_val   = st.selectbox("Max Torque", TORQUE_OPTIONS)
+        max_power_val    = st.selectbox("Max Power",  POWER_OPTIONS)
+
+    with col2:
+        st.subheader("📋 Specs & Policy")
+        age_of_policyholder = num_input("Policyholder Age (normalised 0–1)", 0.5, step=0.01)
+        age_of_car          = num_input("Car Age (normalised 0–1)", 0.1, step=0.01)
+        population_density  = num_input("Population Density", 500, step=100)
+        displacement        = num_input("Displacement (cc)", 1200, step=50)
+        cylinder            = int(num_input("Cylinders", 4, step=1))
+        gear_box            = int(num_input("Gear Box", 5, step=1))
+        turning_radius      = num_input("Turning Radius (m)", 5.0, step=0.1)
+        width               = int(num_input("Width (mm)", 1600, step=10))
+        height              = int(num_input("Height (mm)", 1500, step=10))
+        gross_weight        = int(num_input("Gross Weight (kg)", 1185, step=10))
+        airbags             = int(num_input("Airbags", 2, step=1))
+        ncap_rating         = int(num_input("NCAP Rating (0–5)", 0, step=1))
+
+    st.markdown("---")
+    st.subheader("🛡️ Safety Features (Yes / No)")
+    fc1, fc2, fc3 = st.columns(3)
+
+    with fc1:
+        is_esc       = yn("ESC",             "esc")
+        is_adj_steer = yn("Adj. Steering",   "adj")
+        is_tpms      = yn("TPMS",            "tpms")
+        is_park_sens = yn("Parking Sensors", "psens")
+        is_park_cam  = yn("Parking Camera",  "pcam")
+        is_fog       = yn("Fog Lights",      "fog")
+    with fc2:
+        is_rr_wiper  = yn("Rear Wiper",      "rwiper")
+        is_rr_washer = yn("Rear Washer",     "rwasher")
+        is_rr_defog  = yn("Defogger",        "defog")
+        is_brake_ast = yn("Brake Assist",    "brake")
+        is_pwr_door  = yn("Power Door Locks","pdoor")
+        is_central   = yn("Central Locking", "central")
+    with fc3:
+        is_pwr_steer = yn("Power Steering",  "psteer")
+        is_seat_adj  = yn("Seat Adjustable", "seat")
+        is_dn_mirror = yn("Day/Night Mirror","mirror")
+        is_ecw       = yn("ECW",             "ecw")
+        is_spd_alert = yn("Speed Alert",     "speed")
+
+    st.markdown("---")
+    st.info("💡 **make** is stored as an integer in the dataset (0=first brand, 1=second…). "
+            "Check your `train.csv` to match the make you want.")
+
+    if st.button("🔮 Predict Claim Probability"):
+        # Build input row matching EXACT CSV column names and dtypes
+        input_df = pd.DataFrame([{
+            # int64 in CSV — pass as int
+            "make":               make,
+            "airbags":            airbags,
+            "cylinder":           cylinder,
+            "gear_box":           gear_box,
+            "width":              width,
+            "height":             height,
+            "gross_weight":       gross_weight,
+            "ncap_rating":        ncap_rating,
+            # float64 in CSV
+            "age_of_car":           age_of_car,
+            "age_of_policyholder":  age_of_policyholder,
+            "turning_radius":       turning_radius,
+            "displacement":         float(displacement),
+            "population_density":   float(population_density),
+            # object → label encoded by preprocessing.py
+            "max_torque":        max_torque_val,
+            "max_power":         max_power_val,
+            "engine_type":       engine_type,
+            "area_cluster":      area_cluster,
+            "model":             model_name,
+            "transmission_type": transmission,
+            "segment":           segment,
+            # object → OHE by preprocessing.py
+            "fuel_type":                          fuel_type,
+            "is_esc":                             is_esc,
+            "is_adjustable_steering":             is_adj_steer,
+            "is_tpms":                            is_tpms,
+            "is_parking_sensors":                 is_park_sens,
+            "is_parking_camera":                  is_park_cam,
+            "rear_brakes_type":                   rear_brakes,
+            "steering_type":                      steering,
+            "is_front_fog_lights":                is_fog,
+            "is_rear_window_wiper":               is_rr_wiper,
+            "is_rear_window_washer":              is_rr_washer,
+            "is_rear_window_defogger":            is_rr_defog,
+            "is_brake_assist":                    is_brake_ast,
+            "is_power_door_locks":                is_pwr_door,
+            "is_central_locking":                 is_central,
+            "is_power_steering":                  is_pwr_steer,
+            "is_driver_seat_height_adjustable":   is_seat_adj,
+            "is_day_night_rear_view_mirror":       is_dn_mirror,
+            "is_ecw":                             is_ecw,
+            "is_speed_alert":                     is_spd_alert,
+        }])
+
+        try:
+            prob, label = predict_claim(input_df, models_dir=MODELS_DIR)
+            pct = prob * 100
+
+            st.markdown("### 🎯 Result")
+            if pct < 30:
+                risk, color = "🟢 LOW RISK",    "green"
+            elif pct < 60:
+                risk, color = "🟡 MEDIUM RISK", "orange"
+            else:
+                risk, color = "🔴 HIGH RISK",   "red"
+
+            c1, c2 = st.columns(2)
+            with c1:
+                st.metric("Claim Probability", f"{pct:.2f}%")
+            with c2:
+                st.metric("Prediction", "Will Claim 🚨" if label == 1 else "No Claim ✅")
+
+            st.markdown(f"**Risk Level:** :{color}[{risk}]")
+            st.progress(min(int(pct), 100))
+
+            if label == 1:
+                st.error("⚠️ High claim likelihood — review premium or coverage.")
+            else:
+                st.success("✅ Low risk — standard policy terms apply.")
+
+            st.balloons()
+
+        except Exception as e:
+            st.error(f"Prediction failed: {e}")
+            with st.expander("🔍 Debug info"):
+                st.write("Input DataFrame:")
+                st.dataframe(input_df)
+                import traceback
+                st.code(traceback.format_exc())
+
+# ============================================================
+# DATA EXPLORER
+# ============================================================
+
+if page == "📊 Data Explorer":
+    import matplotlib.pyplot as plt
+
+    st.title("📊 Dataset Explorer")
+
+    train_path = os.path.join(DATA_DIR, "train.csv")
+    if not os.path.exists(train_path):
+        st.error("⚠️ train.csv not found in `data/` folder.")
+        st.stop()
+
+    @st.cache_data
+    def load_train():
+        return pd.read_csv(train_path)
+
+    df = load_train()
+    df_work = df.drop(columns=["policy_id", "policy_tenure"], errors="ignore")
+
+    st.subheader("🔢 Dataset Shape")
+    st.write(f"Rows: **{df.shape[0]:,}** | Columns: **{df.shape[1]}**")
+
+    st.subheader("📋 Column Info")
+    info_df = pd.DataFrame({
+        "Column": df.columns,
+        "Dtype":  [str(df[c].dtype) for c in df.columns],
+        "Nulls":  [df[c].isnull().sum() for c in df.columns],
+        "Unique": [df[c].nunique() for c in df.columns],
+    })
+    st.dataframe(info_df, width="stretch")
+
+    st.subheader("📄 Sample (10 rows)")
+    st.dataframe(df.head(10), width="stretch")
+
+    st.subheader("🎯 Claim Distribution")
+    cc = df["is_claim"].value_counts()
+    fig, ax = plt.subplots(figsize=(5, 3))
+    ax.bar(["No Claim (0)", "Claim (1)"], cc.values, color=["steelblue", "tomato"])
+    for i, v in enumerate(cc.values):
+        ax.text(i, v + 30, f"{v:,}", ha="center", fontweight="bold")
+    ax.set_ylabel("Count")
+    st.pyplot(fig)
+    st.warning("⚠️ Imbalanced — justifies SMOTE oversampling")
+
+    col_a, col_b = st.columns(2)
+    with col_a:
+        st.subheader("🚘 Claim Rate by Segment")
+        if "segment" in df_work.columns:
+            fig2, ax2 = plt.subplots(figsize=(5, 3))
+            df_work.groupby("segment")["is_claim"].mean().sort_values().plot(
+                kind="bar", ax=ax2, color="steelblue")
+            ax2.set_ylabel("Claim Rate")
+            st.pyplot(fig2)
+
+    with col_b:
+        st.subheader("⛽ Claim Rate by Fuel Type")
+        if "fuel_type" in df_work.columns:
+            fig3, ax3 = plt.subplots(figsize=(5, 3))
+            df_work.groupby("fuel_type")["is_claim"].mean().sort_values().plot(
+                kind="bar", ax=ax3, color="coral")
+            ax3.set_ylabel("Claim Rate")
+            st.pyplot(fig3)
+
+    st.subheader("📍 Claim Rate by Area Cluster")
+    if "area_cluster" in df_work.columns:
+        fig4, ax4 = plt.subplots(figsize=(14, 3))
+        df_work.groupby("area_cluster")["is_claim"].mean().sort_values().plot(
+            kind="bar", ax=ax4, color="mediumseagreen")
+        ax4.set_ylabel("Claim Rate")
+        st.pyplot(fig4)
+
+    st.subheader("📊 Numeric Stats")
+    st.dataframe(df_work.select_dtypes(include=np.number).describe().T, width="stretch")
+
+    # Show saved training plots
+    st.subheader("🖼️ Training Plots")
+    for fname, caption in [
+        ("lightgbm_confusion_matrix.png", "LightGBM Confusion Matrix"),
+        ("numerical_distribution.png",    "Numeric Distributions"),
+        ("correlation_after_drop.png",    "Correlation Heatmap"),
+        ("claim_distribution.png",        "Claim Distribution"),
+    ]:
+        fpath = os.path.join(RESULTS_DIR, fname)
+        if os.path.exists(fpath):
+            st.image(fpath, caption=caption, width=600)
+
+# ============================================================
+# MODEL MONITOR
+# ============================================================
+
+if page == "🛡️ Model Monitor":
+    import plotly.express as px
+
+    st.title("🛡️ Model Monitor")
+
+    baseline_path = os.path.join(RESULTS_DIR, "baseline_results.csv")
+    params_path   = os.path.join(RESULTS_DIR, "lightgbm_best_params.csv")
+
+    if not os.path.exists(baseline_path):
+        st.warning("No results yet — run training first.")
+        st.code("python -m src.training", language="bash")
+        st.stop()
+
+    df_bl = pd.read_csv(baseline_path)
+
+    st.subheader("📊 Baseline Comparison (with StandardScaler)")
+    st.dataframe(df_bl.sort_values("Accuracy", ascending=False), width="stretch")
+
+    fig1 = px.bar(df_bl.sort_values("Accuracy", ascending=False),
+                  x="Model", y="Accuracy", color="Accuracy",
+                  text_auto=".4f", title="Baseline Accuracy",
+                  color_continuous_scale="Blues")
+    st.plotly_chart(fig1)
+
+    if os.path.exists(params_path):
+        st.subheader("🔬 LightGBM Best Params (Optuna)")
+        st.dataframe(pd.read_csv(params_path), width="stretch")
+
+    cm_path = os.path.join(RESULTS_DIR, "lightgbm_confusion_matrix.png")
+    if os.path.exists(cm_path):
+        st.subheader("🎯 LightGBM Confusion Matrix")
+        st.image(cm_path, width=400)
+
+    best = df_bl.loc[df_bl["Accuracy"].idxmax()]
+    st.success(
+        f"🏆 Best Baseline: **{best['Model']}** — Accuracy: **{best['Accuracy']:.4f}**\n\n"
+        f"Final model: **LightGBM (Optuna-tuned)** → `models/lightgbm_optuna_model.pkl`"
+    )
+
+    st.subheader("📁 Artifact Status")
+    artifacts = [
+        ("models/lightgbm_optuna_model.pkl", "LightGBM tuned model"),
+        ("models/scaler.pkl",                "StandardScaler"),
+        ("models/encoder_classes.json",      "LabelEncoder classes (JSON)"),
+        ("models/ohe_columns.json",          "OHE column list (JSON)"),
+        ("models/feature_columns.json",      "Feature column order (JSON)"),
+        ("models/corr_drop_cols.json",       "Correlation drop list (JSON)"),
+    ]
+    rows = []
+    for rel, desc in artifacts:
+        full   = os.path.join(BASE_DIR, rel)
+        status = "✅" if os.path.exists(full) else "❌ Missing"
+        rows.append({"File": rel, "Description": desc, "Status": status})
+    st.dataframe(pd.DataFrame(rows), width="stretch")

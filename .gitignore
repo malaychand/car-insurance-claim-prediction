@@ -23,14 +23,8 @@ logs/
 *.log
 
 # ---- Data files (DO NOT upload raw datasets) ----
-data/raw/*
-data/processed/*
-!data/raw/README.md
-!data/processed/README.md
 
-# ---- Model files ----
-models/*
-!models/.gitkeep
+
 
 # ---- Visualizations ----
 visualizations/*

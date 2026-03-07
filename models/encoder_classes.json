@@ -1,0 +1,86 @@
+{
+  "max_torque": [
+    "113Nm@4400rpm",
+    "170Nm@4000rpm",
+    "200Nm@1750rpm",
+    "200Nm@3000rpm",
+    "250Nm@2750rpm",
+    "60Nm@3500rpm",
+    "82.1Nm@3400rpm",
+    "85Nm@3000rpm",
+    "91Nm@4250rpm"
+  ],
+  "max_power": [
+    "113.45bhp@4000rpm",
+    "118.36bhp@5500rpm",
+    "40.36bhp@6000rpm",
+    "55.92bhp@5300rpm",
+    "61.68bhp@6000rpm",
+    "67.06bhp@5500rpm",
+    "88.50bhp@6000rpm",
+    "88.77bhp@4000rpm",
+    "97.89bhp@3600rpm"
+  ],
+  "engine_type": [
+    "1.0 SCe",
+    "1.2 L K Series Engine",
+    "1.2 L K12N Dualjet",
+    "1.5 L U2 CRDi",
+    "1.5 Turbocharged Revotorq",
+    "1.5 Turbocharged Revotron",
+    "F8D Petrol Engine",
+    "G12B",
+    "K Series Dual jet",
+    "K10C",
+    "i-DTEC"
+  ],
+  "area_cluster": [
+    "C1",
+    "C10",
+    "C11",
+    "C12",
+    "C13",
+    "C14",
+    "C15",
+    "C16",
+    "C17",
+    "C18",
+    "C19",
+    "C2",
+    "C20",
+    "C21",
+    "C22",
+    "C3",
+    "C4",
+    "C5",
+    "C6",
+    "C7",
+    "C8",
+    "C9"
+  ],
+  "model": [
+    "M1",
+    "M10",
+    "M11",
+    "M2",
+    "M3",
+    "M4",
+    "M5",
+    "M6",
+    "M7",
+    "M8",
+    "M9"
+  ],
+  "transmission_type": [
+    "Automatic",
+    "Manual"
+  ],
+  "segment": [
+    "A",
+    "B1",
+    "B2",
+    "C1",
+    "C2",
+    "Utility"
+  ]
+}
