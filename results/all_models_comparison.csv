@@ -1,4 +1,5 @@
 Model,Accuracy,ROC_AUC,F1
+LightGBM_Optuna,0.9463,0.9738,0.9442
 CatBoost,0.9475,0.9722,0.9453
 LightGBM_Baseline,0.929,0.9662,0.9257
 XGBoost,0.9058,0.9561,0.8997

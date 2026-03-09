@@ -1,6 +1,3 @@
-# app.py — Car Insurance Claim Predictor
-# Run: streamlit run app.py
-# Requires: python -m src.training  (run once first)
 
 import os
 import sys
@@ -36,7 +33,7 @@ page = st.sidebar.radio(
 st.sidebar.markdown("""
 <hr>
 <div style="text-align:center;font-size:12px;color:gray;">
-🚗 <b>ClaimGuard AI</b><br>
+ <b>ClaimGuard AI</b><br>
 Car Insurance Claim Prediction System<br><br>
 Machine Learning • Risk Analytics<br><br>
 © 2025
@@ -45,9 +42,7 @@ Machine Learning • Risk Analytics<br><br>
 # ============================================================
 # HOME
 # ============================================================
-# ============================================================
-# HOME
-# ============================================================
+
 if page == "🏠 Home":
 
     # Image paths
@@ -58,8 +53,6 @@ if page == "🏠 Home":
     if os.path.exists(img1_path):
         st.image(img1_path, use_container_width=True)
 
-    st.title("🚗 Car Insurance Claim Predictor")
-    st.markdown("---")
 
     col1, col2 = st.columns([1.3, 1])
 
@@ -69,67 +62,48 @@ if page == "🏠 Home":
         ### 🔍 Predict Insurance Claim Risk
 
         This application predicts the **probability that a customer will make a car insurance claim**
-        in the next policy period based on:
+        in the next policy period based on machine learning models trained on vehicle, driver,
+        and policy information.
 
-        - Vehicle specifications
-        - Policyholder demographics
-        - Safety features
-        - Policy information
-
-        The model helps insurance companies with:
+        The system helps insurance companies with:
 
         - **Risk Assessment**
-        - **Fraud Prevention**
+        - **Fraud Detection**
         - **Premium Optimization**
         - **Operational Efficiency**
         """)
 
-    # ── Right Column (Image + Pipeline) ──────────────────────
+        st.markdown("### 🔗 Project Links")
+
+        st.markdown("""
+- 📊 **MLflow Experiments:**  
+  https://dagshub.com/malaychand/car-insurance-claim-prediction.mlflow/
+
+- 🚀 **Live Streamlit App:**  
+  https://car-insurance-claim-prediction-vbsunpjsqzaeaxzs8bgjnt.streamlit.app/
+
+- 📁 **DagsHub Repository:**  
+  https://dagshub.com/malaychand/car-insurance-claim-prediction
+
+- 💻 **GitHub Repository:**  
+  https://github.com/malaychand/car-insurance-claim-prediction
+        """)
+
+    # ── Right Column (Image) ─────────────────────────────
     with col2:
         if os.path.exists(img2_path):
             st.image(img2_path, use_container_width=True)
 
-
     # ── Model Status ─────────────────────────────────────────
     model_ok = os.path.exists(os.path.join(MODELS_DIR, "lightgbm_optuna_model.pkl"))
+
+    st.markdown("---")
 
     if model_ok:
         st.success("✅ Model Loaded — Ready for Predictions")
     else:
         st.warning("⚠️ Model not found. Run the training script first:")
         st.code("python -m src.training", language="bash")
-
-        st.markdown("---")
-    st.markdown("#### ⚙️ Machine Learning Pipeline")
-
-    st.markdown("""
-        - Drop irrelevant columns (`policy_id`, `policy_tenure`)
-        - Label Encoding of categorical variables
-        - One-Hot Encoding of binary features
-        - Correlation analysis and feature pruning
-        - SMOTE oversampling for class imbalance
-        - Feature scaling using StandardScaler
-        - Hyperparameter tuning with **Optuna**
-        - Final model: **LightGBM Classifier**
-        """)
-         
-    st.markdown(
-
-        """
-        ### 📊 Features Used in the Model
-
-        - Age of car
-        - Age of policyholder
-        - Vehicle model & segment
-        - Fuel type
-        - Engine specifications
-        - Safety features (ESC, TPMS, airbags)
-        - City population density
-        - Vehicle dimensions & specifications
-
-        Navigate to **🔍 Prediction** to test the model.
-        """
-    )
 
 # ============================================================
 # PREDICTION
@@ -323,7 +297,6 @@ if page == "🔍 Prediction":
             else:
                 st.success("✅ Low risk — standard policy terms apply.")
 
-            st.balloons()
 
         except Exception as e:
             st.error(f"Prediction failed: {e}")
@@ -332,16 +305,12 @@ if page == "🔍 Prediction":
                 st.dataframe(input_df)
                 import traceback
                 st.code(traceback.format_exc())
-
 # ============================================================
 # DATA EXPLORER
 # ============================================================
-
 if page == "📊 Data Explorer":
     import matplotlib.pyplot as plt
-
     st.title("📊 Dataset Explorer")
-
     train_path = os.path.join(DATA_DIR, "train.csv")
     if not os.path.exists(train_path):
         st.error("⚠️ train.csv not found in `data/` folder.")
@@ -366,66 +335,57 @@ if page == "📊 Data Explorer":
     })
     st.dataframe(info_df, width="stretch")
 
-    st.subheader("📄 Sample (10 rows)")
+    st.subheader("📄 Sample Data")
     st.dataframe(df.head(10), width="stretch")
+    # =====================================================
+    # Training Artifacts (EDA Only)
+    # =====================================================
 
-    st.subheader("🎯 Claim Distribution")
-    cc = df["is_claim"].value_counts()
-    fig, ax = plt.subplots(figsize=(5, 3))
-    ax.bar(["No Claim (0)", "Claim (1)"], cc.values, color=["steelblue", "tomato"])
-    for i, v in enumerate(cc.values):
-        ax.text(i, v + 30, f"{v:,}", ha="center", fontweight="bold")
-    ax.set_ylabel("Count")
-    st.pyplot(fig)
-    st.warning("⚠️ Imbalanced — justifies SMOTE oversampling")
+    st.subheader("📊 Exploratory Data Analysis Artifacts")
+    st.markdown(
+        "These visualizations were generated during exploratory data analysis (EDA) "
+        "to understand the dataset structure, distributions, and correlations."
+    )
 
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.subheader("🚘 Claim Rate by Segment")
-        if "segment" in df_work.columns:
-            fig2, ax2 = plt.subplots(figsize=(5, 3))
-            df_work.groupby("segment")["is_claim"].mean().sort_values().plot(
-                kind="bar", ax=ax2, color="steelblue")
-            ax2.set_ylabel("Claim Rate")
-            st.pyplot(fig2)
+    plots = [
+        (
+            "claim_distribution.png",
+            "Claim Distribution",
+            "Shows the number of customers who filed insurance claims vs those who did not. "
+            "The dataset is imbalanced, which is why SMOTE was applied during model training.",
+        ),
+        (
+            "numerical_distribution.png",
+            "Numeric Feature Distributions",
+            "Histograms of numerical features such as vehicle age, engine displacement, "
+            "and policyholder age to understand distribution patterns and potential outliers.",
+        ),
+        (
+            "correlation_after_drop.png",
+            "Correlation Heatmap",
+            "Displays correlation between numerical features after removing highly correlated "
+            "variables. This helps reduce multicollinearity before model training.",
+        ),
+    ]
 
-    with col_b:
-        st.subheader("⛽ Claim Rate by Fuel Type")
-        if "fuel_type" in df_work.columns:
-            fig3, ax3 = plt.subplots(figsize=(5, 3))
-            df_work.groupby("fuel_type")["is_claim"].mean().sort_values().plot(
-                kind="bar", ax=ax3, color="coral")
-            ax3.set_ylabel("Claim Rate")
-            st.pyplot(fig3)
+    for file, caption, description in plots:
+        path = os.path.join(RESULTS_DIR, file)
 
-    st.subheader("📍 Claim Rate by Area Cluster")
-    if "area_cluster" in df_work.columns:
-        fig4, ax4 = plt.subplots(figsize=(14, 3))
-        df_work.groupby("area_cluster")["is_claim"].mean().sort_values().plot(
-            kind="bar", ax=ax4, color="mediumseagreen")
-        ax4.set_ylabel("Claim Rate")
-        st.pyplot(fig4)
+        if os.path.exists(path):
+            with st.expander(f"📷 {caption}", expanded=True):
+                st.markdown(description)
+                st.image(path, caption=caption, use_container_width=True)
 
-    st.subheader("📊 Numeric Stats")
-    st.dataframe(df_work.select_dtypes(include=np.number).describe().T, width="stretch")
-
-    # Show saved training plots
-    st.subheader("🖼️ Training Plots")
-    for fname, caption in [
-        ("lightgbm_confusion_matrix.png", "LightGBM Confusion Matrix"),
-        ("numerical_distribution.png",    "Numeric Distributions"),
-        ("correlation_after_drop.png",    "Correlation Heatmap"),
-        ("claim_distribution.png",        "Claim Distribution"),
-    ]:
-        fpath = os.path.join(RESULTS_DIR, fname)
-        if os.path.exists(fpath):
-            st.image(fpath, caption=caption, width=600)
-
+        else:
+            with st.expander(f"📷 {caption} *(not found)*", expanded=False):
+                st.markdown(description)
+                st.info(f"Image `{file}` not found in results directory.")
 # ============================================================
 # MODEL MONITOR
 # ============================================================
 
 if page == "🛡️ Model Monitor":
+
     import plotly.express as px
 
     st.title("🛡️ Model Monitor")
@@ -434,48 +394,72 @@ if page == "🛡️ Model Monitor":
     params_path   = os.path.join(RESULTS_DIR, "lightgbm_best_params.csv")
 
     if not os.path.exists(baseline_path):
-        st.warning("No results yet — run training first.")
-        st.code("python -m src.training", language="bash")
+        st.warning("No results found — run training first.")
         st.stop()
 
     df_bl = pd.read_csv(baseline_path)
 
-    st.subheader("📊 Baseline Comparison (with StandardScaler)")
-    st.dataframe(df_bl.sort_values("Accuracy", ascending=False), width="stretch")
+    st.subheader("📊 Baseline Model Comparison")
+    st.dataframe(df_bl.sort_values("ROC_AUC",ascending=False))
 
-    fig1 = px.bar(df_bl.sort_values("Accuracy", ascending=False),
-                  x="Model", y="Accuracy", color="Accuracy",
-                  text_auto=".4f", title="Baseline Accuracy",
-                  color_continuous_scale="Blues")
-    st.plotly_chart(fig1)
-
-    if os.path.exists(params_path):
-        st.subheader("🔬 LightGBM Best Params (Optuna)")
-        st.dataframe(pd.read_csv(params_path), width="stretch")
-
-    cm_path = os.path.join(RESULTS_DIR, "lightgbm_confusion_matrix.png")
-    if os.path.exists(cm_path):
-        st.subheader("🎯 LightGBM Confusion Matrix")
-        st.image(cm_path, width=400)
-
-    best = df_bl.loc[df_bl["Accuracy"].idxmax()]
-    st.success(
-        f"🏆 Best Baseline: **{best['Model']}** — Accuracy: **{best['Accuracy']:.4f}**\n\n"
-        f"Final model: **LightGBM (Optuna-tuned)** → `models/lightgbm_optuna_model.pkl`"
+    # Accuracy Chart
+    fig1 = px.bar(
+        df_bl.sort_values("Accuracy",ascending=False),
+        x="Model",
+        y="Accuracy",
+        color="Accuracy",
+        text_auto=".4f",
+        title="Model Accuracy Comparison",
+        color_continuous_scale="Blues"
     )
 
-    st.subheader("📁 Artifact Status")
-    artifacts = [
-        ("models/lightgbm_optuna_model.pkl", "LightGBM tuned model"),
-        ("models/scaler.pkl",                "StandardScaler"),
-        ("models/encoder_classes.json",      "LabelEncoder classes (JSON)"),
-        ("models/ohe_columns.json",          "OHE column list (JSON)"),
-        ("models/feature_columns.json",      "Feature column order (JSON)"),
-        ("models/corr_drop_cols.json",       "Correlation drop list (JSON)"),
-    ]
-    rows = []
-    for rel, desc in artifacts:
-        full   = os.path.join(BASE_DIR, rel)
-        status = "✅" if os.path.exists(full) else "❌ Missing"
-        rows.append({"File": rel, "Description": desc, "Status": status})
-    st.dataframe(pd.DataFrame(rows), width="stretch")
+    st.plotly_chart(fig1)
+
+    # ROC Comparison Plot
+    roc_path = os.path.join(RESULTS_DIR,"roc_curves_baselines.png")
+    if os.path.exists(roc_path):
+        st.subheader("📉 ROC Curve Comparison")
+        st.image(roc_path,use_container_width=True)
+
+    # Model Comparison Plot
+    comp_path = os.path.join(RESULTS_DIR,"model_comparison_bar.png")
+    if os.path.exists(comp_path):
+        st.subheader("🏆 Model Performance Comparison")
+        st.image(comp_path,use_container_width=True)
+
+    # Confusion Matrices
+    st.subheader("🎯 Confusion Matrices")
+
+    col1,col2 = st.columns(2)
+
+    with col1:
+        lgb_cm = os.path.join(RESULTS_DIR,"lightgbm_confusion_matrix.png")
+        if os.path.exists(lgb_cm):
+            st.image(lgb_cm,caption="LightGBM Confusion Matrix")
+
+    with col2:
+        cat_cm = os.path.join(RESULTS_DIR,"catboost_confusion_matrix.png")
+        if os.path.exists(cat_cm):
+            st.image(cat_cm,caption="CatBoost Confusion Matrix")
+
+    # Feature Importance
+    fi_path = os.path.join(RESULTS_DIR,"lightgbm_feature_importance.png")
+
+    if os.path.exists(fi_path):
+        st.subheader("📊 Feature Importance")
+        st.image(fi_path,use_container_width=True)
+
+    # Best Model
+    best = df_bl.loc[df_bl["ROC_AUC"].idxmax()]
+
+    st.success(
+        f"""
+🏆 **Best Baseline Model:** {best['Model']}
+
+Accuracy: **{best['Accuracy']:.4f}**  
+ROC-AUC: **{best['ROC_AUC']:.4f}**  
+F1 Score: **{best['F1']:.4f}**
+
+Final Production Model → **LightGBM (Optuna tuned)**
+"""
+    )
