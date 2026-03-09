@@ -305,6 +305,61 @@ if page == "🔍 Prediction":
                 st.dataframe(input_df)
                 import traceback
                 st.code(traceback.format_exc())
+
+
+    # ============================================================
+    # SAMPLE DATA TESTING
+    # ============================================================
+
+    st.markdown("---")
+    st.subheader("🧪 Test Model Using Dataset Rows")
+
+    train_path = os.path.join(DATA_DIR, "train.csv")
+    pred_path  = os.path.join(DATA_DIR, "test_predictions.csv")
+
+    if os.path.exists(train_path):
+
+        train_df = pd.read_csv(train_path)
+
+        # Sample rows
+        claim_1 = train_df[train_df["is_claim"] == 1].sample(3, random_state=4)
+        claim_0 = train_df[train_df["is_claim"] == 0].sample(3, random_state=4)
+
+        with st.expander("🔍 Show Sample Rows (Claim = 1)", expanded=False):
+            st.dataframe(claim_1)
+
+            for i, row in claim_1.iterrows():
+                if st.button(f"Check Probability for Claim Row {i}"):
+                    row_df = row.drop("is_claim").to_frame().T
+                    prob, label = predict_claim(row_df, models_dir=MODELS_DIR)
+
+                    st.success(f"Predicted Probability: {prob*100:.2f}%")
+
+        with st.expander("🔍 Show Sample Rows (Claim = 0)", expanded=False):
+            st.dataframe(claim_0)
+
+            for i, row in claim_0.iterrows():
+                if st.button(f"Check Probability for Non-Claim Row {i}"):
+                    row_df = row.drop("is_claim").to_frame().T
+                    prob, label = predict_claim(row_df, models_dir=MODELS_DIR)
+
+                    st.success(f"Predicted Probability: {prob*100:.2f}%")
+
+    # ============================================================
+    # SHOW TEST PREDICTIONS
+    # ============================================================
+
+    if os.path.exists(pred_path):
+
+        with st.expander("📄 View Predicted Test File (Hidden by Default)", expanded=False):
+
+            pred_df = pd.read_csv(pred_path)
+
+            st.write("Preview of predicted results")
+            st.dataframe(pred_df.head(10))
+
+
+
 # ============================================================
 # DATA EXPLORER
 # ============================================================
